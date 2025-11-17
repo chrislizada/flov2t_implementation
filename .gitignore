@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.pyc
+.Python
+venv/
+*.pth
+*.pt
+checkpoints/
+*.pcap
+*.log
+.DS_Store
+.vscode/
