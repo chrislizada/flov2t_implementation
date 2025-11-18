@@ -35,17 +35,25 @@ The system consists of three core components:
 ## Project Structure
 
 ```
-EdgeFedIDS/
+flov2t_implementation/
 ├── src/
 │   ├── data_preprocessing.py      # Pcap2Flow, Packet2Patch, Flow2Image
-│   ├── models.py                  # ViT with LoRA implementation
+│   ├── models.py                  # ViT-tiny with LoRA implementation
 │   ├── federated_aggregation.py   # RGPA and FedAvg aggregators
 │   ├── federated_trainer.py       # Client and Server training logic
+│   ├── load_cicids_data.py        # CICIDS2017/2018 PCAP data loader
+│   ├── create_test_set.py         # Create 10% test set for evaluation
+│   ├── deployment_monitor.py      # IoT deployment monitoring
+│   ├── evaluate_deployment.py     # Deployment evaluation script
 │   ├── config.py                  # Configuration parameters
 │   ├── utils.py                   # Helper functions
-│   └── main.py                    # Main training script
+│   ├── main.py                    # Main training script
+│   └── test_*.py                  # Unit tests
 ├── requirements.txt
-└── README.md
+├── README.md
+├── PCAP_USAGE.md                  # Guide for using PCAP data
+├── DEPLOYMENT_GUIDE.md            # Deployment and evaluation guide
+└── BENCHMARK.md                   # Performance benchmarking guide
 ```
 
 ## Installation
@@ -59,61 +67,64 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Usage
+## Quick Start
 
-### Basic Training
+### 1. Training with CICIDS2017/2018 PCAP Data
 
-```python
-from src.main import main
-main()
+```bash
+# Train on CICIDS2017 (IID scenario, 3 clients)
+python src/main.py \
+    --data_path ./data/CICIDS2017 \
+    --dataset CICIDS2017 \
+    --num_clients 3 \
+    --scenario iid \
+    --num_rounds 20 \
+    --checkpoint_dir ./checkpoints/cicids2017_iid
+
+# Train on CICIDS2018 (Non-IID scenario, 5 clients)
+python src/main.py \
+    --data_path ./data/CICIDS2018 \
+    --dataset CICIDS2018 \
+    --num_clients 5 \
+    --scenario non-iid \
+    --num_rounds 20 \
+    --checkpoint_dir ./checkpoints/cicids2018_noniid
 ```
 
-### Custom Configuration
+### 2. Create Test Set (10% for final evaluation)
 
-```python
-from src.config import FLoV2TConfig
-from src.federated_trainer import Client, FederatedServer
-from src.data_preprocessing import TrafficPreprocessor
-
-# Configure parameters
-config = FLoV2TConfig()
-config.NUM_ROUNDS = 20
-config.LOCAL_EPOCHS = 5
-config.LORA_RANK = 4
-config.LAMBDA_REG = 0.1
-
-# Preprocess PCAP files
-preprocessor = TrafficPreprocessor()
-images = preprocessor.preprocess_pcap('path/to/file.pcap')
-
-# Train federated model
-server = FederatedServer(
-    num_classes=8,
-    rank=4,
-    alpha=8,
-    aggregation_method='rgpa',
-    lambda_reg=0.1
-)
+```bash
+# Create separate test set for deployment evaluation
+python src/create_test_set.py \
+    --data_path ./data/CICIDS2017 \
+    --dataset CICIDS2017 \
+    --output_dir ./test_data \
+    --test_ratio 0.1
 ```
 
-### Data Preprocessing
+### 3. Evaluate Deployment on IoT Devices
 
-```python
-from src.data_preprocessing import TrafficPreprocessor
-
-preprocessor = TrafficPreprocessor(max_packets=196, patch_size=16)
-
-# Process single PCAP file
-images = preprocessor.preprocess_pcap('traffic.pcap')
-
-# Process dataset directory
-labels_dict = {
-    'botnet_traffic.pcap': 0,
-    'dos_slowloris.pcap': 1,
-    # ...
-}
-data, labels = preprocessor.preprocess_dataset('pcap_dir/', labels_dict)
+```bash
+# Comprehensive deployment evaluation
+python src/evaluate_deployment.py \
+    --model ./checkpoints/cicids2017_iid/best_model.pt \
+    --test_data ./test_data/CICIDS2017_test_data.npy \
+    --batch_size 32 \
+    --log_dir ./deployment_logs
 ```
+
+This measures:
+- Memory: Peak RAM, swap, GPU memory
+- Computation: CPU utilization, inference time
+- Latency: End-to-end detection time (P50/P95/P99)
+- Accuracy: Precision, Recall, F1-score
+- Communication: Bytes transmitted per round
+
+## Detailed Guides
+
+- **[PCAP_USAGE.md](PCAP_USAGE.md)** - How to use CICIDS2017/2018 PCAP files
+- **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Complete deployment and evaluation guide
+- **[BENCHMARK.md](BENCHMARK.md)** - Performance benchmarking guide
 
 ## Configuration Parameters
 
@@ -173,9 +184,49 @@ The system classifies 8 types of malicious traffic:
 
 This implementation is for research and educational purposes.
 
-## Notes
+## Key Features
 
-- Requires CICIDS2017 or CICIDS2018 datasets in PCAP format
-- GPU recommended for training (CUDA support)
-- Pre-trained ViT model downloaded automatically from HuggingFace
-- Supports both IID and non-IID data distributions
+- **Automatic PCAP Processing**: Automatically detects attack types from PCAP filenames
+- **CICIDS Support**: Built-in support for CICIDS2017 and CICIDS2018 datasets
+- **ViT-tiny Model**: Uses lightweight ViT-tiny (192 hidden size) for edge devices
+- **LoRA Fine-tuning**: 64x parameter reduction (21.67M → 336.8K trainable)
+- **RGPA Aggregation**: Handles non-IID data distributions
+- **Comprehensive Monitoring**: Memory, CPU, GPU, latency, accuracy tracking
+- **IoT Deployment Ready**: Optimized for resource-constrained devices
+
+## PCAP File Naming
+
+Place PCAP files in `./data/CICIDS2017/` or `./data/CICIDS2018/` with keywords:
+
+| Attack Type | Keywords | Label |
+|-------------|----------|-------|
+| Botnet | `botnet`, `bot` | 0 |
+| DoS-Slowloris | `slowloris`, `slow` | 1 |
+| DoS-GoldenEye | `goldeneye`, `golden` | 2 |
+| DoS-Hulk | `hulk` | 3 |
+| SSH-BruteForce | `ssh`, `patator`, `ftp` | 4 |
+| Web-SQL | `sql` | 5 |
+| Web-XSS | `xss` | 6 |
+| Web-Bruteforce | `bruteforce`, `brute` | 7 |
+
+Example: `botnet_capture.pcap`, `dos_slowloris_attack.pcap`
+
+## Expected Performance
+
+| Metric | Target | Description |
+|--------|--------|-------------|
+| Accuracy | 97.26% | IID scenario (paper baseline) |
+| F1 Score | 96.99% | IID scenario (paper baseline) |
+| Parameters | 336.8K | Trainable (64x reduction) |
+| Inference | <100ms | Real-time capable |
+| Memory | <4GB | Edge device compatible |
+| Model Size | ~83MB | Lightweight for IoT |
+
+## Requirements
+
+- Python 3.8+
+- PyTorch 1.10+
+- Scapy (for PCAP processing)
+- CICIDS2017/2018 datasets in PCAP format
+- GPU recommended (CUDA support) but CPU works
+- 8GB+ RAM for training (4GB for inference)

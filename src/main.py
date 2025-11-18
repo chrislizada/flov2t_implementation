@@ -8,6 +8,7 @@ from config import FLoV2TConfig
 from utils import (set_seed, create_iid_partition, create_non_iid_partition, 
                    split_train_test, count_parameters, print_data_distribution,
                    create_imbalanced_iid_partition)
+from load_cicids_data import load_cicids_data
 
 def main():
     parser = argparse.ArgumentParser(description='FLoV2T: Federated Learning for AIoT Malicious Traffic Classification')
@@ -22,6 +23,7 @@ def main():
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints', help='Directory to save checkpoints')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--data_path', type=str, default=None, help='Path to PCAP data directory')
+    parser.add_argument('--max_samples_per_file', type=int, default=None, help='Max samples per PCAP file (for testing)')
     
     args = parser.parse_args()
     
@@ -43,23 +45,26 @@ def main():
     print(f"  LoRA Rank: {config.LORA_RANK}, Alpha: {config.LORA_ALPHA}")
     print("="*80 + "\n")
     
-    preprocessor = TrafficPreprocessor(
-        max_packets=config.MAX_PACKETS,
-        patch_size=config.PATCH_SIZE
-    )
-    
     if args.data_path:
-        print(f"Loading data from: {args.data_path}")
-        print("Note: Implement actual PCAP loading based on your dataset structure")
+        try:
+            data, labels = load_cicids_data(
+                data_path=args.data_path,
+                dataset=args.dataset,
+                max_samples_per_file=args.max_samples_per_file
+            )
+        except Exception as e:
+            print(f"Error loading PCAP data: {e}")
+            print("Falling back to dummy data for testing\n")
+            data = np.random.randint(0, 256, (1000, 3, 224, 224), dtype=np.uint8)
+            labels = np.random.randint(0, config.NUM_CLASSES, 1000)
     else:
-        print("Using dummy data for demonstration")
-        print("Note: Replace with actual PCAP data paths for real experiments\n")
-    
-    dummy_data = np.random.randint(0, 256, (1000, 3, 224, 224), dtype=np.uint8)
-    dummy_labels = np.random.randint(0, config.NUM_CLASSES, 1000)
+        print("No --data_path specified. Using dummy data for demonstration")
+        print("To use real PCAP data, run with: --data_path /path/to/pcap/directory\n")
+        data = np.random.randint(0, 256, (1000, 3, 224, 224), dtype=np.uint8)
+        labels = np.random.randint(0, config.NUM_CLASSES, 1000)
     
     train_data, train_labels, test_data, test_labels = split_train_test(
-        dummy_data, dummy_labels, test_ratio=0.2
+        data, labels, test_ratio=0.2
     )
     
     if args.scenario == 'iid':

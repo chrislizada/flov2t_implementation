@@ -31,28 +31,23 @@ This guide shows how to measure and validate that FLoV2T can run on lightweight 
 
 ## Running Benchmarks
 
-### Quick Benchmark (Model Only)
+### Model Profiling
+Use the deployment monitor for comprehensive profiling:
+
 ```bash
-python src/benchmark.py
+python src/evaluate_deployment.py \
+    --model ./checkpoints/best_model.pt \
+    --test_data ./test_data/CICIDS2017_test_data.npy
 ```
 
 This will measure:
 - Parameter counts and reduction
 - Model size on disk
 - Inference time (100 iterations)
-- Training time (10 iterations)
-
-### Full Training Benchmark
-```bash
-python src/main_with_monitoring.py
-```
-
-This will:
-- Profile the model
-- Monitor system resources during training
-- Track performance across all federated rounds
-- Generate performance reports
-- Analyze lightweight device suitability
+- Training time per batch
+- Memory usage (RAM, GPU)
+- CPU/GPU utilization
+- Latency percentiles (P50, P95, P99)
 
 ## Output Files
 
@@ -121,23 +116,24 @@ GPU Memory: ~2-3GB (✓✓)
 
 ### Measure with LoRA (FLoV2T)
 ```bash
-python src/main_with_monitoring.py
+python src/main.py \
+    --data_path ./data/CICIDS2017 \
+    --dataset CICIDS2017 \
+    --aggregation rgpa
 ```
 
-### Measure without LoRA (Baseline)
-Modify `config.py`:
-```python
-LORA_RANK = None  # Disable LoRA
-```
-Then run:
+### Measure without LoRA (Baseline - FedAvg)
 ```bash
-python src/main_with_monitoring.py
+python src/main.py \
+    --data_path ./data/CICIDS2017 \
+    --dataset CICIDS2017 \
+    --aggregation fedavg
 ```
 
 Compare:
-- Parameter count increase (64x more)
-- Training time increase (~3x slower)
-- Memory usage increase (~2x more)
+- Parameter count (LoRA: 336K vs Full: 21.67M)
+- Training time (LoRA: ~1.48s/epoch vs Full: ~4.60s/epoch)
+- Communication overhead (LoRA: ~1.3MB vs Full: ~83MB)
 
 ## Validating Lightweight Claims
 
