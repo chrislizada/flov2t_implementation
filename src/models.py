@@ -140,6 +140,10 @@ class FLoV2TModel(nn.Module):
             else:
                 raise ValueError(f"Expected 1 or 3 channels, got {x.shape[1]}")
         
+        mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
+        x = (x - mean) / std
+        
         return self.model(x)
     
     def get_trainable_parameters(self):

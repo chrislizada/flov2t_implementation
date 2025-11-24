@@ -33,13 +33,22 @@ class Client:
     def train(self, epochs: int = 5, batch_size: int = 32, lr: float = 0.001) -> Dict:
         dataloader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
         
-        criterion = nn.CrossEntropyLoss()
+        labels_array = torch.from_numpy(self.dataset.tensors[1].numpy())
+        class_counts = torch.bincount(labels_array)
+        class_weights = 1.0 / class_counts.float()
+        class_weights = class_weights / class_weights.sum()
+        class_weights = class_weights.to(self.device)
+        
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
         optimizer = optim.AdamW(self.model.get_trainable_parameters(), lr=lr, weight_decay=0.01)
         
         self.model.train()
         
+        epoch_losses = []
         for epoch in range(epochs):
             total_loss = 0
+            correct = 0
+            total = 0
             for batch_data, batch_labels in dataloader:
                 batch_data = batch_data.to(self.device)
                 batch_labels = batch_labels.to(self.device)
@@ -51,6 +60,14 @@ class Client:
                 optimizer.step()
                 
                 total_loss += loss.item()
+                
+                _, predicted = torch.max(outputs.data, 1)
+                total += batch_labels.size(0)
+                correct += (predicted == batch_labels).sum().item()
+            
+            epoch_loss = total_loss / len(dataloader)
+            epoch_acc = 100 * correct / total
+            epoch_losses.append(epoch_loss)
         
         return self.model.get_lora_state_dict()
     
