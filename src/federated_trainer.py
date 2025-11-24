@@ -30,22 +30,28 @@ class Client:
     def set_global_model(self, global_state: Dict):
         self.model.load_lora_state_dict(global_state)
     
-    def train(self, epochs: int = 5, batch_size: int = 32, lr: float = 0.001) -> Dict:
+    def train(self, epochs: int = 5, batch_size: int = 32, lr: float = 0.001, warmup_epochs: int = 2) -> Dict:
         dataloader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
         
         labels_array = torch.from_numpy(self.dataset.tensors[1].numpy())
-        class_counts = torch.bincount(labels_array)
-        class_weights = 1.0 / class_counts.float()
-        class_weights = class_weights / class_weights.sum()
+        class_counts = torch.bincount(labels_array, minlength=self.model.model.classifier.out_features)
+        class_weights = torch.zeros_like(class_counts, dtype=torch.float32)
+        mask = class_counts > 0
+        class_weights[mask] = 1.0 / class_counts[mask].float()
+        class_weights = class_weights / class_weights.sum() if class_weights.sum() > 0 else class_weights
         class_weights = class_weights.to(self.device)
         
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
+        criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
         optimizer = optim.AdamW(self.model.get_trainable_parameters(), lr=lr, weight_decay=0.01)
         
         self.model.train()
         
         epoch_losses = []
         for epoch in range(epochs):
+            current_lr = lr * min(1.0, (epoch + 1) / warmup_epochs) if epoch < warmup_epochs else lr
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = current_lr
+            
             total_loss = 0
             correct = 0
             total = 0
@@ -57,6 +63,7 @@ class Client:
                 outputs = self.model(batch_data)
                 loss = criterion(outputs, batch_labels)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.get_trainable_parameters(), max_norm=1.0)
                 optimizer.step()
                 
                 total_loss += loss.item()
@@ -220,7 +227,7 @@ class FederatedServer:
                 global_state = self.get_global_state()
                 clients[0].set_global_model(global_state)
                 
-                acc, prec, rec, f1 = clients[0].evaluate(test_data, test_labels, batch_size=batch_size)
+                acc, prec, rec, f1, confusion = clients[0].evaluate(test_data, test_labels, batch_size=batch_size, return_confusion=True)
                 
                 history['accuracy'].append(acc)
                 history['precision'].append(prec)
@@ -228,6 +235,11 @@ class FederatedServer:
                 history['f1'].append(f1)
                 
                 print(f"Global Model - Acc: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
+                
+                pred_counts = confusion.sum(axis=0)
+                print(f"Predictions per class: {pred_counts}")
+                if len(np.nonzero(pred_counts)[0]) <= 2:
+                    print(f"⚠️  WARNING: Model predicting only {len(np.nonzero(pred_counts)[0])} classes!")
                 
                 is_best = False
                 if f1 > self.best_f1:

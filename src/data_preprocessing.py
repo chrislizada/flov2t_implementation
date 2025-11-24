@@ -112,7 +112,11 @@ class TrafficPreprocessor:
                 col_start = j * self.patch_size
                 image[row_start:row_start+self.patch_size, col_start:col_start+self.patch_size] = patches_reshaped[i, j]
         
-        image_rgb = np.stack([image, image, image], axis=0)
+        image_r = image.copy()
+        image_g = np.roll(image, 1, axis=0)
+        image_b = np.roll(image, 2, axis=0)
+        
+        image_rgb = np.stack([image_r, image_g, image_b], axis=0)
         
         return image_rgb
     
